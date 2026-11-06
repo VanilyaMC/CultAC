@@ -9,6 +9,7 @@ import ac.cult.cultac.platform.bukkit.player.BukkitPlatformPlayer;
 import ac.cult.cultac.player.CultPlayer;
 import java.util.UUID;
 import org.bukkit.Bukkit;
+import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.HandlerList;
@@ -39,11 +40,12 @@ public final class BukkitCloudFacts implements Listener {
                 String name = CloudService.ownServerName();
                 if (name != null) bind.accept(name);
             });
-            Bukkit.getScheduler().runTask(plugin, () -> BukkitRuntimeRegistrations.registerEvents(facts, plugin));
+            Bukkit.getGlobalRegionScheduler()
+                    .execute(plugin, () -> BukkitRuntimeRegistrations.registerEvents(facts, plugin));
         }
-        Bukkit.getScheduler().runTask(plugin, () -> {
+        Bukkit.getGlobalRegionScheduler().execute(plugin, () -> {
             CultAPI.INSTANCE.getPlatformServer().cloudFacts();
-            readOnline();
+            readOnline(plugin);
         });
     }
 
@@ -53,19 +55,24 @@ public final class BukkitCloudFacts implements Listener {
         if (facts == null) return;
         running = null;
         CloudCapture.segmentBinder(SegmentBinder.NONE);
-        Bukkit.getScheduler().runTask(facts.plugin, () -> HandlerList.unregisterAll(facts));
+        Bukkit.getGlobalRegionScheduler().execute(facts.plugin, () -> HandlerList.unregisterAll(facts));
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onJoin(PlayerJoinEvent event) {
         if (!CloudService.enabled()) return;
-        var id = event.getPlayer().getUniqueId();
-        Bukkit.getScheduler().runTaskLater(plugin, () -> read(id), 1);
+        readOnOwnerThread(plugin, event.getPlayer(), 1);
     }
 
-    private static void readOnline() {
+    private static void readOnline(Plugin plugin) {
         if (!CloudService.enabled()) return;
-        for (var online : Bukkit.getOnlinePlayers()) read(online.getUniqueId());
+        for (var online : Bukkit.getOnlinePlayers()) readOnOwnerThread(plugin, online, 1);
+    }
+
+    /** The facts are entity state: on Folia only the region that owns the player may read them. */
+    private static void readOnOwnerThread(Plugin plugin, Player online, long delay) {
+        var id = online.getUniqueId();
+        online.getScheduler().execute(plugin, () -> read(id), null, delay);
     }
 
     private static void read(UUID id) {
