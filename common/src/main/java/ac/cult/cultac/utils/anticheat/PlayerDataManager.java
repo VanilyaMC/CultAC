@@ -82,7 +82,26 @@ public class PlayerDataManager {
             return false;
         }
 
+        if (isBedrockWithoutLocalBridge(user)) {
+            exemptUser(user);
+            LogUtil.info("Bedrock player " + user.getUUID()
+                            + " is not checked here: Geyser runs on another server, so its Bedrock packets"
+                            + " never reach this one");
+            return false;
+        }
+
         return true;
+    }
+
+    /**
+     * A Bedrock session can only be simulated where Geyser's bridge taps its Bedrock packets. On a backend
+     * behind a proxy that runs Geyser, a Floodgate player arrives as translated Java packets with no bridge,
+     * and neither engine can model it.
+     */
+    private boolean isBedrockWithoutLocalBridge(User user) {
+        if (user.getCultConnection().bedrockBridge() != null) return false;
+        if (GeyserUtil.isGeyserAvailable()) return false;
+        return isKnownBedrockPlayer(user.getUUID());
     }
 
     @Nullable
