@@ -24,7 +24,9 @@ public final class ProxyClientDetails {
             if (!root.isJsonObject()) return null;
             JsonObject object = root.getAsJsonObject();
             JsonElement version = object.get("version");
-            if (version == null || !version.isJsonPrimitive() || !version.getAsJsonPrimitive().isNumber()) {
+            if (version == null
+                    || !version.isJsonPrimitive()
+                    || !version.getAsJsonPrimitive().isNumber()) {
                 return null;
             }
             double value = version.getAsDouble();
