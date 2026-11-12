@@ -11,8 +11,6 @@ import ac.grim.grimac.api.AbstractCheck;
 import ac.grim.grimac.api.config.ConfigManager;
 import ac.grim.grimac.api.config.ConfigReloadable;
 import ac.grim.grimac.api.event.events.CommandExecuteEvent;
-import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
-import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import java.util.*;
 import java.util.function.Supplier;
 import lombok.RequiredArgsConstructor;
@@ -339,21 +337,15 @@ public class PunishmentManager implements ConfigReloadable {
             if (group.checks.contains(check)) {
                 long currentTime = System.currentTimeMillis();
 
-                group.violations.put(currentTime, check);
+                group.violations.add(currentTime, check);
                 // Remove violations older than the defined time in the config
-                group.violations
-                        .long2ObjectEntrySet()
-                        .removeIf(time -> currentTime - time.getLongKey() > group.removeViolationsAfter);
+                group.violations.expireBefore(currentTime, group.removeViolationsAfter);
             }
         }
     }
 
     private int getViolations(PunishGroup group, Check check) {
-        int vl = 0;
-        for (Check value : group.violations.values()) {
-            if (value == check) vl++;
-        }
-        return vl;
+        return group.violations.count(check);
     }
 }
 
@@ -361,7 +353,7 @@ public class PunishmentManager implements ConfigReloadable {
 class PunishGroup {
     public final List<AbstractCheck> checks;
     public final List<ParsedCommand> commands;
-    public final Long2ObjectMap<Check> violations = new Long2ObjectOpenHashMap<>();
+    public final ViolationWindow violations = new ViolationWindow();
     public final int removeViolationsAfter; // time to remove violations after in milliseconds
 }
 
