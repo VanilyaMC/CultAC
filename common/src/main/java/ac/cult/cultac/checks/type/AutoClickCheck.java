@@ -25,6 +25,10 @@ import java.util.LinkedList;
  */
 public abstract class AutoClickCheck extends Check implements CheckListener, ClientTickEndListener {
     private final LinkedList<Long> samples = new LinkedList<>();
+    // The client tick each sample was clicked in, counted by ServerboundClientTickEnd. A swing arrives before the end
+    // of the tick that sent it, in order, so this clock does not bunch up when the network delays a batch of swings.
+    private final LinkedList<Long> sampleTicks = new LinkedList<>();
+    private long clientTicks;
 
     private final int samplesBeforeCheck;
     private BlockPos diggingLocation = null;
@@ -98,10 +102,12 @@ public abstract class AutoClickCheck extends Check implements CheckListener, Cli
     private void handleSwing() {
         if (!lastDigging.hasOccurredSince(2)) {
             samples.add(System.currentTimeMillis());
+            sampleTicks.add(clientTicks);
 
             if (samples.size() == samplesBeforeCheck) {
-                handle(samples);
+                handle(samples, sampleTicks);
                 samples.clear();
+                sampleTicks.clear();
             }
         }
     }
@@ -121,6 +127,7 @@ public abstract class AutoClickCheck extends Check implements CheckListener, Cli
 
     @Override
     public void onPlayerTickEnd(PacketReceiveEvent event) {
+        clientTicks++;
         if (diggingLocation == null) return;
         Vector3dm playerPos = new Vector3dm(player.lastX, player.lastY, player.lastZ);
 
@@ -157,5 +164,9 @@ public abstract class AutoClickCheck extends Check implements CheckListener, Cli
         }
     }
 
-    public abstract void handle(LinkedList<Long> samples);
+    /**
+     * {@code samples} holds the arrival time in milliseconds of each counted swing and {@code sampleTicks} the client
+     * tick it was sent in, index for index.
+     */
+    public abstract void handle(LinkedList<Long> samples, LinkedList<Long> sampleTicks);
 }

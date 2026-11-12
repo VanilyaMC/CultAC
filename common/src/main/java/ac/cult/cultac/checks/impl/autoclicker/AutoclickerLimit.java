@@ -23,12 +23,12 @@ public class AutoclickerLimit extends AutoClickCheck {
     }
 
     @Override
-    public void handle(LinkedList<Long> samples) {
-        final double cps = CultMath.getCps(samples);
+    public void handle(LinkedList<Long> samples, LinkedList<Long> sampleTicks) {
+        final double cps = CultMath.getCps(samples, sampleTicks);
 
         // Not going to make this cloud-based - too stupid to do that
         if (cps > maxCps) {
-            increaseBuffer(() -> "cps " + (int) Math.round(cps));
+            increaseBuffer(() -> "cps " + (Double.isInfinite(cps) ? "inf" : Long.toString(Math.round(cps))));
         } else {
             decreaseBuffer();
         }
