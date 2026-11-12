@@ -161,6 +161,23 @@ public class CultMath {
 
     /** Calculates clicks per second without undercounting same-millisecond samples. */
     @Contract(pure = true)
+    /**
+     * Clicks per second over {@code millis} (arrival times) and {@code ticks} (the client tick each click was sent
+     * in): the clicks after the first over the longer of the two spans. A late batch of swings arrives bunched,
+     * which shortens the arrival span but not the tick span; a client running below 20 ticks per second clicks
+     * more per tick, which shortens the tick span but not the arrival span. A real click rate shortens both.
+     */
+    public static double getCps(List<Long> millis, List<Long> ticks) {
+        if (millis == null || millis.size() < 2) return 0;
+        double arrivalSeconds = (millis.get(millis.size() - 1) - millis.get(0)) / 1000.0;
+        double tickSeconds = ticks == null || ticks.size() != millis.size()
+                ? 0
+                : (ticks.get(ticks.size() - 1) - ticks.get(0)) / 20.0;
+        double seconds = Math.max(arrivalSeconds, tickSeconds);
+        if (seconds <= 0) return Double.POSITIVE_INFINITY;
+        return (millis.size() - 1) / seconds;
+    }
+
     public static double getCps(List<Long> samples) {
         if (samples == null || samples.size() < 2) return 0;
         long spanMillis = Math.max(1, samples.get(samples.size() - 1) - samples.get(0));

@@ -61,6 +61,8 @@ public final class CultConnection implements CodecState, FrameLease.Source {
 
     private volatile User user;
     private volatile CultPlayer player;
+    // The original client protocol a ViaVersion proxy reported in vv:proxy_details; null until it does.
+    private volatile ac.cult.cultac.protocol.ProtocolVersion proxyClientProtocol;
     // Owned by the outbound connection executor. The encoder opens a flush bundle with a
     // leading ping and closes it at the next actual Netty flush.
     private boolean flushBundleOpen;
@@ -245,7 +247,24 @@ public final class CultConnection implements CodecState, FrameLease.Source {
     /** Original client identity; unknown before authentication must not become a model-version guess. */
     @org.jetbrains.annotations.Nullable
     public ac.cult.cultac.protocol.ProtocolVersion getClientProtocol() {
-        return platform == null ? null : platform.getClientProtocol();
+        ac.cult.cultac.protocol.ProtocolVersion local = platform == null ? null : platform.getClientProtocol();
+        if (local == null) return null;
+        // A proxy that translates with ViaVersion hands this backend the 26.3 wire of every client. Its
+        // vv:proxy_details names the protocol the client really speaks, which is the physics the client runs.
+        ac.cult.cultac.protocol.ProtocolVersion proxy = proxyClientProtocol;
+        return proxy != null ? proxy : local;
+    }
+
+    /**
+     * Takes the original client protocol from the first vv:proxy_details on this connection; later ones are ignored.
+     * True when it was taken.
+     */
+    public boolean adoptProxyClientProtocol(ac.cult.cultac.protocol.ProtocolVersion protocol) {
+        synchronized (this) {
+            if (proxyClientProtocol != null) return false;
+            proxyClientProtocol = protocol;
+            return true;
+        }
     }
 
     public ProjectedPackets packets() {
