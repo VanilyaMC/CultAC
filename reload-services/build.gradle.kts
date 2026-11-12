@@ -12,7 +12,7 @@ configurations.configureEach { attributes.attribute(org.gradle.api.attributes.ja
 dependencies {
     testImplementation("org.junit.jupiter:junit-jupiter:5.11.4")
     testImplementation("org.mockito:mockito-core:5.22.0")
-    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher:1.11.4")
     api(libs.jetbrains.annotations)
     api(libs.cult.api)
     api(libs.cult.internal)

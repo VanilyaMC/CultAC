@@ -65,10 +65,14 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
+import java.sql.Connection;
+import java.sql.SQLException;
+import java.sql.Statement;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
@@ -238,6 +242,9 @@ public final class SharedDataStoreLifecycle implements AutoCloseable {
                             closeFailure);
                 }
                 continue;
+            }
+            if (backendConfig instanceof SqliteBackendConfig sqliteConfig) {
+                applySqliteSynchronous(v2, sqliteConfig, logger);
             }
             this.v2Backends.add(v2);
             v2ById.put(backendId, v2);
@@ -498,6 +505,33 @@ public final class SharedDataStoreLifecycle implements AutoCloseable {
             return Long.parseLong(raw);
         } catch (NumberFormatException ignored) {
             return 0L;
+        }
+    }
+
+    /**
+     * Applies {@code sqlite.synchronous-mode} to the v2 SQLite connection. {@link SqliteBackendV2#init} sets only WAL and
+     * the busy timeout, so the connection stays at SQLite's default FULL, which syncs the WAL to disk on every commit;
+     * the writer thread then spends most of its time in fsync under a burst of flags. Runs before any write is queued.
+     */
+    static void applySqliteSynchronous(
+            @NotNull BackendV2 backend, @NotNull SqliteBackendConfig config, @NotNull Logger logger) {
+        String mode = config.synchronousMode() == null
+                ? ""
+                : config.synchronousMode().trim().toUpperCase(Locale.ROOT);
+        if (!(mode.equals("OFF") || mode.equals("NORMAL") || mode.equals("FULL") || mode.equals("EXTRA"))) {
+            if (!mode.isEmpty()) {
+                logger.warning("[cult-datastore] unknown sqlite synchronous-mode '" + config.synchronousMode()
+                        + "'; keeping SQLite's default");
+            }
+            return;
+        }
+        DataSource source = backend.unwrap(DataSource.class).orElse(null);
+        if (source == null) return;
+        try (Connection connection = source.getConnection();
+                Statement statement = connection.createStatement()) {
+            statement.execute("PRAGMA synchronous=" + mode);
+        } catch (SQLException e) {
+            logger.log(Level.WARNING, "[cult-datastore] could not apply sqlite synchronous-mode " + mode, e);
         }
     }
 
