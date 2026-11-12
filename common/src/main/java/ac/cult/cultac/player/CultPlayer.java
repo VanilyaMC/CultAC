@@ -1793,11 +1793,6 @@ public class CultPlayer implements GrimUser {
         return resolved != null ? resolved : resolveClientVersion();
     }
 
-    /** Forgets the resolved client version after the connection learned the client's original protocol. */
-    public void clientProtocolChanged() {
-        resolvedClientVersion = null;
-    }
-
     private ClientVersion resolveClientVersion() {
         ClientVersion resolved;
         // Packet decoding uses the observed protocol. Physics uses the original
