@@ -16,6 +16,7 @@ import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaMovementEngine;
 import ac.cult.cultac.checks.impl.prediction.pipeline.java.JavaPredictionCarry;
 import ac.cult.cultac.events.packets.listeners.PacketServerTeleport;
 import ac.cult.cultac.network.event.PacketSendEvent;
+import ac.cult.cultac.network.packet.EntityMetadata;
 import ac.cult.cultac.network.protocol.ClientVersion;
 import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.ConnectionPhase;
@@ -38,6 +39,7 @@ import ac.cult.cultac.protocol.value.Vec3d;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.TeleportData;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityArmorStand;
 import ac.cult.cultac.utils.data.packetentity.PacketEntitySizeable;
 import ac.cult.cultac.utils.latency.CompensatedEntities;
 import ac.cult.cultac.utils.math.Vec3;
@@ -46,6 +48,7 @@ import ac.cult.cultac.utils.nmsutil.Collisions;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
 import ac.cult.cultac.utils.nmsutil.RideTickStuckContact;
 import java.lang.reflect.Field;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -668,6 +671,61 @@ class DismountRideStateTest {
         }
     }
 
+    /**
+     * ArmorStand#getDefaultDimensions seats a marker stand's rider at the fixed 0 by 0 MARKER_DIMENSIONS and a small
+     * stand's at BABY_DIMENSIONS' 0.9875, less Avatar's 0.6 vehicle attachment: the invisible marker seats sitting
+     * plugins spawn on stairs keep the rider at the stand's feet, not at the full stand's 1.975.
+     */
+    @ParameterizedTest
+    @MethodSource("armorStandSeats")
+    void aRemovedArmorStandLeavesItsRiderAtItsDimensionsSeat(byte flags, double passengerAttachment) throws Exception {
+        try (var f = fixture(ClientVersion.V_26_3)) {
+            Vec3 stand = SEAT.add(0, 3, 0);
+            f.place(SEAT, Vec3.ZERO);
+            PredictionResult standing = f.tick(SEAT, true);
+            assertTrue(exact(standing), describe(standing));
+            mountArmorStand(f, stand, flags);
+            f.rideTick();
+            dismount(f, true);
+            PredictionResult first = f.tick(stand.add(0, passengerAttachment - 0.6, 0), false);
+            assertTrue(exact(first), describe(first));
+        }
+    }
+
+    /** A rider leaving a marker stand at the full stand's seat still flags VerticalOffset. */
+    @Test
+    void aMoveToTheFullStandsSeatOffAMarkerStillFlags() throws Exception {
+        try (var f = fixture(ClientVersion.V_26_3)) {
+            Vec3 stand = SEAT.add(0, 3, 0);
+            f.place(SEAT, Vec3.ZERO);
+            PredictionResult standing = f.tick(SEAT, true);
+            assertTrue(exact(standing), describe(standing));
+            mountArmorStand(f, stand, (byte) 16);
+            f.rideTick();
+            dismount(f, true);
+            PredictionResult first = f.tick(stand.add(0, (double) 1.975F - 0.6, 0), false);
+            assertTrue(describe(first).contains("VerticalOffset"), describe(first));
+        }
+    }
+
+    static Stream<Arguments> armorStandSeats() {
+        return Stream.of(
+                Arguments.of((byte) 0, (double) 1.975F),
+                Arguments.of((byte) 1, (double) (1.975F * 0.5F)),
+                Arguments.of((byte) 16, 0.0D),
+                Arguments.of((byte) 17, 0.0D));
+    }
+
+    /** An armor stand with the given ArmorStand#DATA_CLIENT_FLAGS (1 small, 16 marker) carrying the player. */
+    private static void mountArmorStand(JavaTickFixture f, Vec3 stand, byte flags) {
+        f.player.compensatedEntities.addEntity(VEHICLE, EntityTypeIds.ARMOR_STAND, stand, 0, 0, 0);
+        ((PacketEntityArmorStand) f.player.compensatedEntities.getEntity(VEHICLE))
+                .updateActionMetadata(List.of(new EntityMetadata.Entry(15, flags, ByteBuffer.allocate(0))));
+        f.setPassengers(VEHICLE, List.of(f.player.entityID));
+        f.pongThrough(f.player.lastTransactionSent.get());
+        assertTrue(f.player.compensatedEntities.getSelf().inVehicle());
+    }
+
     static Stream<Arguments> beeSeats() {
         return Stream.of(
                 Arguments.of(ClientVersion.V_1_21_11, (double) 0.6F),
@@ -680,8 +738,8 @@ class DismountRideStateTest {
         assertTrue(exact(standing), describe(standing));
         var add = new ClientboundAddEntity(
                 VEHICLE, "minecraft:phantom", new Vec3d(phantom.x, phantom.y, phantom.z), 0, 0, 0);
-        var addEvent = new PacketSendEvent<>(
-                f.fixture.user, ConnectionPhase.PLAY, ClientboundPackets.ADD_ENTITY, add, false);
+        var addEvent =
+                new PacketSendEvent<>(f.fixture.user, ConnectionPhase.PLAY, ClientboundPackets.ADD_ENTITY, add, false);
         f.player.packetEntityReplication.onAddEntity(addEvent, f.player, add);
         addEvent.tasksAfter().forEach(Runnable::run);
         f.pongThrough(f.player.lastTransactionSent.get());

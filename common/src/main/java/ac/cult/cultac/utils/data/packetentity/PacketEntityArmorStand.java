@@ -26,6 +26,17 @@ public final class PacketEntityArmorStand extends PacketEntity {
         return (actionFlags & (1 | 16)) == 0;
     }
 
+    /**
+     * ArmorStand#getDimensionsMarker: a marker uses the fixed 0 by 0 MARKER_DIMENSIONS and a small stand
+     * BABY_DIMENSIONS, the type's size scaled by 0.5; Entity#getPassengerAttachmentPoint takes the passenger point of
+     * those dimensions, the height they fall back to. The scale that LivingEntity#getDimensions applies is left to the
+     * caller, and never reaches the fixed marker dimensions.
+     */
+    public float passengerHeightBeforeScale(float typeHeight) {
+        if (actionMarker()) return 0.0F;
+        return (actionFlags & 1) != 0 ? typeHeight * 0.5F : typeHeight;
+    }
+
     public void updateActionMetadata(List<EntityMetadata.Entry> entries) {
         var flags = WatchableIndexUtil.getIndex(entries, 15);
         if (flags != null && flags.value() instanceof Byte value) actionFlags = value;

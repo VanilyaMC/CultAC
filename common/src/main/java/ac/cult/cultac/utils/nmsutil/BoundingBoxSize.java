@@ -9,6 +9,7 @@ import ac.cult.cultac.player.CultPlayer;
 import ac.cult.cultac.protocol.value.EntityPose;
 import ac.cult.cultac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.cult.cultac.utils.data.packetentity.PacketEntity;
+import ac.cult.cultac.utils.data.packetentity.PacketEntityArmorStand;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityCamel;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityHorse;
 import ac.cult.cultac.utils.data.packetentity.PacketEntityInteraction;
@@ -156,8 +157,18 @@ public class BoundingBoxSize {
             return new Vec3(0.0D, interaction.actionHeight, 0.0D);
         }
         int index = Math.max(passengerIndex, 0);
-        float vehicleYaw = getAttachmentYaw(vehicle, player);
         ClientVersion version = player.getClientVersion();
+        if (vehicle instanceof PacketEntityArmorStand stand
+                && !stand.hasMovementSize()
+                && !player.isBedrockMovement()
+                && version.isNewerThanOrEquals(ClientVersion.V_1_20_5)) {
+            // ArmorStand#getDefaultDimensions: a marker or small stand seats its rider at its own dimensions'
+            // passenger point, not at the full stand's 1.975 (GSit-style seats are invisible marker stands).
+            float height =
+                    stand.passengerHeightBeforeScale(baseDimensions(vehicle).height());
+            return new Vec3(0.0D, stand.actionMarker() ? height : height * vehicle.scale, 0.0D);
+        }
+        float vehicleYaw = getAttachmentYaw(vehicle, player);
         float legacyHeight = legacyHeight(vehicle, version);
         if (!player.isBedrockMovement()
                 && version.isNewerThanOrEquals(ClientVersion.V_1_20_5)
