@@ -21,6 +21,7 @@ import ac.cult.cultac.checks.impl.crash.CrashF;
 import ac.cult.cultac.checks.impl.groundspoof.NoFallExecutor;
 import ac.cult.cultac.checks.impl.prediction.AuthoredMovementFrame;
 import ac.cult.cultac.checks.impl.prediction.DesyncStatus;
+import ac.cult.cultac.checks.impl.prediction.GlideTolerance;
 import ac.cult.cultac.checks.impl.prediction.PredVector;
 import ac.cult.cultac.checks.impl.prediction.PredictionCarry;
 import ac.cult.cultac.checks.impl.prediction.PredictionCommit;
@@ -123,6 +124,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
 
     boolean lastWorldEyeInWater = false;
     PredCheckRunner flagger = new PredCheckRunner(this.player);
+    final GlideTolerance glideTolerance = new GlideTolerance();
     DesyncStatus lastOnGround = DesyncStatus.FALSE;
     LastInstance lastFlying = new LastInstance(this.player);
     boolean lastSneaking = false;
@@ -1058,6 +1060,10 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
                 this.lastOnGround = DesyncStatus.fromBoolean(onGround);
             }
 
+            if (!this.player.isBedrockMovement()) {
+                this.glideTolerance.apply(this.player, result);
+            }
+
             boolean createProfileVerboseLog = movementProfile.shouldCreateVerboseLog(this.player, result);
             boolean recordProfileDebug = BedrockPredictionDebug.shouldRecordMovementDebug(this.player, result);
             this.player.compensatedEntities.vehicles.consumeVehicleSwitchPredictionOffset(result);
@@ -1661,6 +1667,7 @@ public class SimulationProcessor extends CultProcessor implements PositionListen
         this.lastFlying.setRaw(20);
         this.lastSneaking = false;
         this.lastGliding = false;
+        this.glideTolerance.reset();
         this.player.packetStateData.bedrockTranslatedMovement.clear();
         if (this.player.bedrockState != null) {
             this.lastMovementWasSetback = false;

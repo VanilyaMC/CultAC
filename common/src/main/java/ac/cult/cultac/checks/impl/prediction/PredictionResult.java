@@ -75,6 +75,16 @@ public class PredictionResult {
     @Setter
     boolean isTeleport = false;
 
+    /**
+     * {@link GlideTolerance} lets this tick's offset flags pass: the flags stay on the result for the engine, but
+     * they raise no alert, no Simulation violation and no setback.
+     */
+    @Getter
+    @Setter
+    @EqualsAndHashCode.Exclude
+    @ToString.Exclude
+    boolean glideTolerated = false;
+
     @Getter
     @Setter
     ItemUseTickResult itemUseResult;

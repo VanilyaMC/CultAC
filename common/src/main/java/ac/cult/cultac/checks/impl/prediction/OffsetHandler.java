@@ -49,8 +49,8 @@ public class OffsetHandler extends Check implements PostPredictionListener {
 
         // Teleport
         if (predictionResult.isTeleport) return;
-        // Exempt or otherwise no flagging
-        if (predictionResult.flagSeverity == 0.0) {
+        // Exempt or otherwise no flagging; GlideTolerance passed a small offset while gliding
+        if (predictionResult.flagSeverity == 0.0 || predictionResult.glideTolerated) {
             advantageGained *= setbackDecayMultiplier;
             return;
         }

@@ -26,6 +26,7 @@ public class FlagCaller extends CultProcessor implements PostPredictionListener 
             for (int i = 0; i < flags.size(); i++) {
                 PredictionResult.Flag flag = flags.get(i);
                 if (!sharedSetbacks && !(flag.getCheck() instanceof BedrockMovement)) continue;
+                if (result.isGlideTolerated() && GlideTolerance.isOffsetFlag(flag.getCheck())) continue;
                 if (flag.getCheck() instanceof BedrockMovement movement) {
                     movement.flagMovement(flag.getSeverity(), result::shownIdentifier);
                     continue;
