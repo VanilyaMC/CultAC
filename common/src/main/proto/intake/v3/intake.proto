@@ -351,6 +351,8 @@ message Verdict {
   optional bool using_item = 15;
   // The movement input prediction's accepted move needs.
   Input input = 16;
+  // The setbacks sent to the client during the tick, at most 4.
+  repeated Setback setbacks = 17;
 }
 
 // Verdict.conditions' bits.
@@ -412,6 +414,30 @@ message Flag {
   string check = 1;
   // The violation level after the flag, times 100.
   uint32 violations_hundredths = 2;
+  // The check's verbose, for the checks that send one; at most 64 bytes, and at most 4 flags of a verdict carry one.
+  string verbose = 3;
+}
+
+// A setback: why it was sent and, for a violation, the check its sender named.
+message Setback {
+  SetbackKind kind = 1;
+  // The resync, latency or resend reason; at most 64 bytes.
+  string cause = 2;
+  string check = 3;
+}
+
+enum SetbackKind {
+  SETBACK_KIND_UNSPECIFIED = 0;
+  // A check's violation.
+  SETBACK_KIND_VIOLATION = 1;
+  // A setback that does not simulate the next tick: a timer or other packet-rate rejection.
+  SETBACK_KIND_NON_SIMULATING = 2;
+  // A forced resync of the client's position.
+  SETBACK_KIND_RESYNC = 3;
+  // The client's latency.
+  SETBACK_KIND_LATENCY = 4;
+  // A setback already sent goes again: the client ignored it in flight, or it goes again dismounted.
+  SETBACK_KIND_RESEND = 5;
 }
 
 message Outcomes {
@@ -827,6 +853,17 @@ message PerfProfile {
   repeated PerfThreadCpu jvm_thread_cpu = 35;  // Linux /proc/self/task: CPU of the JVM's own threads by kind
   bool alloc_calibrated = 36;           // alloc_bytes scaled per thread group to ThreadMXBean's exact bytes
   repeated PerfAllocCalibration alloc_calibration = 37;  // per group: sampled (after the first-sample drop) vs exact
+  optional uint64 heap_committed_bytes = 38;  // MemoryMXBean at the window end
+  optional uint64 heap_max_bytes = 39;        // absent when the heap has no maximum
+  repeated PerfMemoryPool heap_pools = 40;    // every heap MemoryPoolMXBean at the window end
+  repeated PerfBufferPool buffer_pools = 41;  // every BufferPoolMXBean at the window end
+  repeated PerfCollector collectors = 42;     // every GarbageCollectorMXBean, counted within the window
+  optional uint32 tracked_players = 43;          // the anticheat's players at the window end
+  optional uint32 section_store_entries = 44;    // block containers the shared section store holds
+  optional uint32 section_store_capacity = 45;   // and at most holds
+  optional uint32 section_pool_dimensions = 46;  // dimensions the pool registry holds
+  optional uint32 section_pools = 47;            // section positions with a pool
+  optional uint64 section_pool_references = 48;  // chunk sections the players retain in the pools
 }
 
 message PerfStack {
@@ -853,6 +890,25 @@ message PerfAllocCalibration {
   uint32 thread_group = 1;   // index into thread_groups
   uint64 sampled_bytes = 2;  // sampled weights after dropping each thread's first sample, before scaling
   uint64 exact_bytes = 3;    // ThreadMXBean; 0 when unknown
+}
+
+message PerfMemoryPool {
+  string name = 1;
+  optional uint64 used_bytes = 2;
+  optional uint64 used_after_gc_bytes = 3;  // as the pool's last collection left it; absent when the JVM keeps none
+}
+
+message PerfBufferPool {
+  string name = 1;  // "direct", "mapped", ...
+  optional uint64 count = 2;
+  optional uint64 used_bytes = 3;
+  optional uint64 capacity_bytes = 4;
+}
+
+message PerfCollector {
+  string name = 1;
+  optional uint64 window_count = 2;   // collections within the window
+  optional uint64 window_millis = 3;  // accumulated collection time within the window, as the bean reports it
 }
 
 // Team sync: whether the organization takes portal roles, at connect and whenever it changes; each replaces the last.

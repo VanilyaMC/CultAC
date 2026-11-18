@@ -161,7 +161,7 @@ public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
         CultAPI.INSTANCE.start();
         boolean bridged = bridge.start(
                 CultAPI.INSTANCE.getNetworkManager().dispatcher(),
-                CultAPI.INSTANCE.getConfigManager().getConfig().getStringElse("bridge.secret", ""));
+                CultAPI.INSTANCE.getConfigManager().getConfig());
         synchronized (this) {
             cloudBridge = bridged ? bridge : BridgeSessions.NONE;
             startCloudBackends();
@@ -331,8 +331,7 @@ public final class VelocityPlatform implements PlatformLoader, AutoCloseable {
     void attach(com.velocitypowered.api.proxy.Player player, Channel channel) {
         var owner = bedrockOwner(channel);
         if (owner == null && new VelocityClientSupport(proxy).isBedrock(player.getUniqueId())) {
-            VelocityTransport.refuse(
-                    player, VelocityTransport.REFUSED, "Bedrock session without a Geyser bridge", null);
+            VelocityTransport.refuseUnbridged(player);
             return;
         }
         transport.attach(player, channel, owner, null);

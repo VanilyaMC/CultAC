@@ -43,14 +43,11 @@ import ac.cult.cultac.utils.data.packetentity.PacketEntityArmorStand;
 import ac.cult.cultac.utils.data.packetentity.PacketEntitySizeable;
 import ac.cult.cultac.utils.latency.CompensatedEntities;
 import ac.cult.cultac.utils.math.Vec3;
-import ac.cult.cultac.utils.nmsutil.BoundingBoxSize;
 import ac.cult.cultac.utils.nmsutil.Collisions;
 import ac.cult.cultac.utils.nmsutil.GetBoundingBox;
-import ac.cult.cultac.utils.nmsutil.RideTickStuckContact;
 import java.lang.reflect.Field;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Stream;
@@ -144,7 +141,7 @@ class DismountRideStateTest {
     void aCobwebMultiplierFromBeforeTheRideIsConsumedByIt(ClientVersion version, boolean removeSeat) throws Exception {
         try (var f = fixture(version)) {
             web(f, new BlockPos(0, FLOOR_Y, 0));
-            f.place(SEAT, Vec3.ZERO);
+            f.place(SEAT, new Vec3(0, FALL, 0));
             PredictionResult inWeb = f.tick(SEAT, true);
             assertTrue(exact(inWeb), describe(inWeb));
             mount(f, SEAT);
@@ -162,7 +159,7 @@ class DismountRideStateTest {
         try (var f = riding(version, SEAT)) {
             f.rideTick();
             dismount(f, removeSeat);
-            assertCarriedStuckCandidates(f, version);
+            assertCarriedStuckSpeed(f, version, null);
             pushedMove(f, null);
         }
     }
@@ -175,19 +172,22 @@ class DismountRideStateTest {
             f.rideTick();
             dismount(f, removeSeat);
             Vec3 web = Collisions.getCobwebStuckSpeed(f.player);
-            assertCarriedStuckCandidates(f, version, COBWEB, WEAVING_COBWEB);
+            assertCarriedStuckSpeed(f, version, COBWEB);
             pushedMove(f, web);
         }
     }
 
     @ParameterizedTest
     @MethodSource("endings")
-    void aCobwebAtTheSeatCanLeaveTheFirstMoveUnslowed(ClientVersion version, boolean removeSeat) throws Exception {
+    void aCobwebAtTheSeatCannotLeaveTheFirstMoveUnslowed(ClientVersion version, boolean removeSeat) throws Exception {
         try (var f = riding(version, SEAT)) {
             web(f, seatTop(rideTickSeat(f)));
             f.rideTick();
             dismount(f, removeSeat);
-            pushedMove(f, null);
+            f.pongThrough(f.velocity(new Vec3(PUSH, 0, 0)));
+            Vec3 from = new Vec3(f.player.x, f.player.y, f.player.z);
+            PredictionResult move = f.tick(from.add(PUSH, 0, 0), false);
+            assertFalse(exact(move), describe(move));
         }
     }
 
@@ -198,7 +198,7 @@ class DismountRideStateTest {
         try (var f = riding(version, SEAT)) {
             web(f, seatTop(rideTickSeat(f)));
             dismount(f, removeSeat);
-            assertCarriedStuckCandidates(f, version);
+            assertCarriedStuckSpeed(f, version, null);
             pushedMove(f, null);
         }
     }
@@ -214,7 +214,7 @@ class DismountRideStateTest {
             f.player.compensatedWorld.updateBlock(top, BlockIds.AIR.defaultState());
             dismount(f, removeSeat);
             Vec3 web = Collisions.getCobwebStuckSpeed(f.player);
-            assertCarriedStuckCandidates(f, version, COBWEB, WEAVING_COBWEB);
+            assertCarriedStuckSpeed(f, version, COBWEB);
             pushedMove(f, web);
         }
     }
@@ -235,7 +235,7 @@ class DismountRideStateTest {
                     "the new seat " + seat + " still touches the cobweb");
             dismount(f, removeSeat);
             Vec3 web = Collisions.getCobwebStuckSpeed(f.player);
-            assertCarriedStuckCandidates(f, version, COBWEB, WEAVING_COBWEB);
+            assertCarriedStuckSpeed(f, version, COBWEB);
             pushedMove(f, web);
         }
     }
@@ -251,7 +251,7 @@ class DismountRideStateTest {
             f.player.compensatedWorld.updateBlock(new BlockPos(0, y, 1), BlockIds.SWEET_BERRY_BUSH.defaultState());
             f.rideTick();
             dismount(f, removeSeat);
-            assertCarriedStuckCandidates(f, version, COBWEB, WEAVING_COBWEB, BERRY_BUSH);
+            assertCarriedStuckSpeed(f, version, BERRY_BUSH);
             pushedMove(f, BERRY_BUSH);
         }
     }
@@ -296,13 +296,13 @@ class DismountRideStateTest {
         }
     }
 
-    /** Player#updatePlayerPose stands a passenger up only after its first ride tick's inside-block pass. */
+    /** Entity#startRiding immediately installs STANDING, and the following ride ticks keep that box. */
     @ParameterizedTest
     @MethodSource("endings")
     void releasingCrouchOnTheSeatReachesTheCobwebAboveTheCrouchingBox(ClientVersion version, boolean removeSeat)
             throws Exception {
         try (var f = fixture(version)) {
-            f.place(SEAT, Vec3.ZERO);
+            f.place(SEAT, new Vec3(0, FALL, 0));
             f.input(new ServerboundPlayerInput(false, false, false, false, false, true, false));
             PredictionResult crouching = f.tick(SEAT, true);
             assertTrue(exact(crouching), describe(crouching));
@@ -313,7 +313,8 @@ class DismountRideStateTest {
             f.rideTick();
             Vec3 seat = rideTickSeat(f);
             BlockPos top = seatTop(seat);
-            assertTrue(playerBox(f, seat).maxY < top.getY(), "the crouching box reaches the cobweb");
+            assertEquals(1.8F, f.player.pose.height);
+            assertTrue(playerBox(f, seat).maxY > top.getY(), "the standing box reaches the cobweb");
             web(f, top);
             f.rideTick();
             dismount(f, removeSeat);
@@ -336,7 +337,17 @@ class DismountRideStateTest {
             f.rideTick();
             f.input(NONE);
             dismount(f, removeSeat);
-            pushedMove(f, null);
+            if (!removeSeat) {
+                pushedMove(f, null);
+                return;
+            }
+            // Entity#setRemoved's stopRiding leaves the rider at its seat, 0.4125 into the floor under the boat, so
+            // Entity#collide stops the unslowed push at the west face of the floor block east of it.
+            f.pongThrough(f.velocity(new Vec3(PUSH, 0, 0)));
+            Vec3 from = new Vec3(f.player.x, f.player.y, f.player.z);
+            assertEquals(seat, from);
+            PredictionResult move = f.tick(from.add(1.0 - (from.x + halfWidth), 0, 0), false);
+            assertTrue(exact(move), describe(move));
         }
     }
 
@@ -345,7 +356,7 @@ class DismountRideStateTest {
     @MethodSource("endings")
     void aFluidJumpReachesTheCobwebAboveTheSeat(ClientVersion version, boolean removeSeat) throws Exception {
         try (var f = fixture(version)) {
-            f.place(SEAT, Vec3.ZERO);
+            f.place(SEAT, new Vec3(0, FALL, 0));
             PredictionResult standing = f.tick(SEAT, true);
             assertTrue(exact(standing), describe(standing));
             mount(f, SEAT.add(0, 0.805, 0));
@@ -362,7 +373,7 @@ class DismountRideStateTest {
             f.rideTick();
             f.input(NONE);
             dismount(f, removeSeat);
-            assertCarriedStuckCandidates(f, version, COBWEB, WEAVING_COBWEB, BERRY_BUSH, POWDER_SNOW);
+            assertCarriedStuckSpeed(f, version, COBWEB);
             pushedMove(f, Collisions.getCobwebStuckSpeed(f.player));
         }
     }
@@ -427,10 +438,10 @@ class DismountRideStateTest {
     /** LivingEntity#aiStep jumps from the ground in water shallower than the fluid jump threshold. */
     @ParameterizedTest
     @MethodSource("endings")
-    void aShallowWaterJumpReachesACobwebAQuarterBlockAboveTheSeat(ClientVersion version, boolean removeSeat)
+    void aShallowWaterPassengerJumpCannotReachACobwebAQuarterBlockAboveTheSeat(ClientVersion version, boolean removeSeat)
             throws Exception {
         try (var f = fixture(version)) {
-            f.place(SEAT, Vec3.ZERO);
+            f.place(SEAT, new Vec3(0, FALL, 0));
             PredictionResult standing = f.tick(SEAT, true);
             assertTrue(exact(standing), describe(standing));
             mount(f, SEAT.add(0, 0.495, 0));
@@ -449,22 +460,44 @@ class DismountRideStateTest {
             f.rideTick();
             f.input(NONE);
             dismount(f, removeSeat);
+            assertCarriedStuckSpeed(f, version, null);
+            pushedMove(f, null);
+        }
+    }
+
+    /**
+     * ClientPacketListener#handleTeleportEntity interpolates a nearby vehicle the client does not move, so
+     * ClientLevel#tickPassenger runs the ride tick from the prior seat.
+     */
+    @ParameterizedTest
+    @MethodSource("endings")
+    void aSeatTeleportedNearBeforeTheLastRideTickCarriesThePriorSeatsCobweb(ClientVersion version, boolean removeSeat)
+            throws Exception {
+        try (var f = riding(version, SEAT)) {
+            web(f, seatTop(rideTickSeat(f)));
+            teleportVehicle(f, SEAT.add(0, 30, 0));
+            f.rideTick();
+            dismount(f, removeSeat);
+            assertCarriedStuckSpeed(f, version, COBWEB);
             pushedMove(f, Collisions.getCobwebStuckSpeed(f.player));
         }
     }
 
-    /** The vehicle moves before ClientLevel#tickPassenger runs the ride tick from the prior seat. */
+    /**
+     * A jump past 64 blocks is set, not interpolated (setValuesFromPositionPacket), and the handler's
+     * Entity#positionRider seats the player at once: the ride tick runs from the new seat, far from the cobweb.
+     */
     @ParameterizedTest
     @MethodSource("endings")
-    void aSeatTeleportedFarBeforeTheLastRideTickCarriesThePriorSeatsCobweb(ClientVersion version, boolean removeSeat)
+    void aSeatTeleportedFarBeforeTheLastRideTickLeavesThePriorSeatsCobweb(ClientVersion version, boolean removeSeat)
             throws Exception {
         try (var f = riding(version, SEAT)) {
             web(f, seatTop(rideTickSeat(f)));
             teleportVehicle(f, SEAT.add(0, 1000, 0));
             f.rideTick();
             dismount(f, removeSeat);
-            assertCarriedStuckCandidates(f, version, COBWEB, WEAVING_COBWEB);
-            pushedMove(f, Collisions.getCobwebStuckSpeed(f.player));
+            assertCarriedStuckSpeed(f, version, null);
+            pushedMove(f, null);
         }
     }
 
@@ -475,7 +508,7 @@ class DismountRideStateTest {
         try (var f = riding(version, SEAT)) {
             f.rideTick();
             dismount(f, removeSeat);
-            assertCarriedStuckCandidates(f, version);
+            assertCarriedStuckSpeed(f, version, null);
             PredictionResult move = liftedMove(f, POWDER_SNOW.y);
             assertTrue(move.getFlagSeverity() > 0.0, describe(move));
         }
@@ -486,13 +519,13 @@ class DismountRideStateTest {
     void anOpenAirRideOfOneTickCannotClaimThePowderSnowLift(ClientVersion version, boolean removeSeat)
             throws Exception {
         try (var f = fixture(version)) {
-            f.place(SEAT, Vec3.ZERO);
+            f.place(SEAT, new Vec3(0, FALL, 0));
             PredictionResult standing = f.tick(SEAT, true);
             assertTrue(exact(standing), describe(standing));
             mount(f, SEAT);
             f.rideTick();
             dismount(f, removeSeat);
-            assertCarriedStuckCandidates(f, version);
+            assertCarriedStuckSpeed(f, version, null);
             PredictionResult move = liftedMove(f, POWDER_SNOW.y);
             assertTrue(move.getFlagSeverity() > 0.0, describe(move));
         }
@@ -508,7 +541,7 @@ class DismountRideStateTest {
                     BlockPos.containing(seat.x, seat.y, seat.z), BlockIds.POWDER_SNOW.defaultState());
             f.rideTick();
             dismount(f, removeSeat);
-            assertCarriedStuckCandidates(f, version, POWDER_SNOW);
+            assertCarriedStuckSpeed(f, version, POWDER_SNOW);
             PredictionResult move = liftedMove(f, POWDER_SNOW.y);
             assertTrue(exact(move), describe(move));
         }
@@ -530,7 +563,7 @@ class DismountRideStateTest {
     @ValueSource(booleans = {false, true})
     void aLegacyFirstRideAtAHighMovementSpeedReachesAFarCobweb(boolean removeSeat) throws Exception {
         try (var f = fixture(ClientVersion.V_1_21_2)) {
-            f.place(SEAT, Vec3.ZERO);
+            f.place(SEAT, new Vec3(0, FALL, 0));
             assertTrue(exact(f.tick(SEAT, true)));
             var packet = new ClientboundUpdateAttributes(
                     f.player.entityID, List.of(new AttributeSnapshot("minecraft:movement_speed", 1.0, List.of())));
@@ -552,34 +585,33 @@ class DismountRideStateTest {
         }
     }
 
-    /** The seat the first ride tick ends on is as uncertain as its vehicle's boxes, through a later vehicle snap. */
+    /** A prior tick's exact seat alternatives survive a later vehicle snap without filling their gap. */
     @Test
-    void theFirstRideTickKeepsItsSeatUncertaintyForTheNextRideTick() throws Exception {
+    void theFirstRideTickKeepsItsDiscreteSeatsForTheNextRideTick() throws Exception {
         try (var f = fixture(ClientVersion.V_26_3)) {
-            f.place(SEAT, Vec3.ZERO);
+            f.place(SEAT, new Vec3(0, FALL, 0));
             f.player.compensatedEntities.addEntity(VEHICLE, EntityTypeIds.ARMOR_STAND, SEAT, 0, 0, 0);
             PacketEntity tracked = f.player.compensatedEntities.getEntity(VEHICLE);
-            float width = BoundingBoxSize.getWidth(f.player, tracked);
-            float height = BoundingBoxSize.getHeight(f.player, tracked);
-            SimpleCollisionBox possible = new SimpleCollisionBox(
-                    0.5 - width / 2, FLOOR_Y, 0.5 - width / 2, 4.5 + width / 2, FLOOR_Y + height, 0.5 + width / 2);
-            PacketEntity vehicle = new PacketEntity(f.player, VEHICLE, EntityTypeIds.ARMOR_STAND, 0.5, FLOOR_Y, 0.5) {
+            var boxes = new java.util.ArrayList<SimpleCollisionBox>();
+            boxes.add(GetBoundingBox.getPacketEntityBoundingBox(f.player, .5, FLOOR_Y, .5, tracked));
+            boxes.add(GetBoundingBox.getPacketEntityBoundingBox(f.player, 4.5, FLOOR_Y, .5, tracked));
+            PacketEntity vehicle = new PacketEntity(f.player, VEHICLE, EntityTypeIds.ARMOR_STAND, .5, FLOOR_Y, .5) {
                 @Override
-                public SimpleCollisionBox getPossibleMovementCollisionBoxes(
-                        SimpleCollisionBox out, SimpleCollisionBox scratch) {
-                    return out.set(possible);
+                public List<SimpleCollisionBox> getPossibleMovementCollisionBoxCandidates() {
+                    return boxes;
                 }
             };
-            RideTickStuckContact contact = new RideTickStuckContact();
-            contact.scan(f.player, vehicle, null, false);
-            Vec3 priorSeat = BoundingBoxSize.getRidingOffsetFromVehicle(
-                    vehicle, f.player.compensatedEntities.getSelf(), f.player, possible);
-            assertEquals(2.5, priorSeat.x);
-            web(f, BlockPos.containing(4, priorSeat.y + 1, 0));
-            possible.set(new SimpleCollisionBox(
-                    0.5 - width / 2, FLOOR_Y, 0.5 - width / 2, 0.5 + width / 2, FLOOR_Y + height, 0.5 + width / 2));
-            int contacts = contact.scan(f.player, vehicle, priorSeat, false);
-            assertEquals(0b0011, contacts & 0b0011, "a seat the prior boxes allowed reaches the cobweb");
+            f.player.compensatedEntities.entityMap.put(VEHICLE, vehicle);
+            f.player.compensatedEntities.getSelf().mount(vehicle);
+            f.player.compensatedEntities.recordRideTickSeat();
+            var prior = List.copyOf(f.player.compensatedEntities.lastRideTickSeats());
+            assertEquals(2, prior.size());
+            assertEquals(.5, prior.get(0).x);
+            assertEquals(4.5, prior.get(1).x);
+            boxes.removeLast();
+            assertEquals(prior, f.player.compensatedEntities.lastRideTickSeats());
+            f.player.compensatedEntities.recordRideTickSeat();
+            assertEquals(List.of(prior.getFirst()), f.player.compensatedEntities.lastRideTickSeats());
         }
     }
 
@@ -733,7 +765,7 @@ class DismountRideStateTest {
     }
 
     private static void mountPhantom(JavaTickFixture f, Vec3 phantom, int size) {
-        f.place(SEAT, Vec3.ZERO);
+        f.place(SEAT, new Vec3(0, FALL, 0));
         PredictionResult standing = f.tick(SEAT, true);
         assertTrue(exact(standing), describe(standing));
         var add = new ClientboundAddEntity(
@@ -783,7 +815,7 @@ class DismountRideStateTest {
     }
 
     private static void ride(JavaTickFixture f, Vec3 vehicle, int type) {
-        f.place(vehicle, Vec3.ZERO);
+        f.place(vehicle, new Vec3(0, FALL, 0));
         PredictionResult standing = f.tick(vehicle, true);
         assertTrue(exact(standing), describe(standing));
         mount(f, vehicle, type);
@@ -798,7 +830,12 @@ class DismountRideStateTest {
         PredictionResult falling = f.tick(above.add(0, FALL, 0), false);
         assertTrue(exact(falling), describe(falling));
         double fallDistance = carry(f).fallDistance();
-        assertTrue(fallDistance > 0, "the move before the ride leaves no fall distance");
+        if (f.player.getClientVersion() == ClientVersion.V_1_21_4) {
+            // Entity#move's !isControlledByClient gate skips the local player's fall callback in this release.
+            assertEquals(0.0D, fallDistance);
+        } else {
+            assertTrue(fallDistance > 0, "the move before the ride leaves no fall distance");
+        }
         return fallDistance;
     }
 
@@ -840,16 +877,6 @@ class DismountRideStateTest {
             if (expected == null) assertNull(state.stuckSpeed());
             else assertEquals(expected, state.stuckSpeed());
         }
-    }
-
-    /** The carried states take no multiplier or one of {@code stuckSpeeds}, and each of those is carried. */
-    private static void assertCarriedStuckCandidates(JavaTickFixture f, ClientVersion version, Vec3... stuckSpeeds) {
-        if (!JavaMovementEngine.supportsExactEffects(version)) return;
-        var expected = new HashSet<Vec3>(List.of(stuckSpeeds));
-        expected.add(null);
-        var carried = new HashSet<Vec3>();
-        for (var state : carry(f).states()) carried.add(state.stuckSpeed());
-        assertEquals(expected, carried);
     }
 
     private static JavaPredictionCarry carry(JavaTickFixture f) {
