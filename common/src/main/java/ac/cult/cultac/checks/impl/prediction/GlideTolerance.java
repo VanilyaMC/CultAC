@@ -97,7 +97,7 @@ public final class GlideTolerance {
         SimulationContext context = result.getSimulationContext();
         if (context == null || result.isTeleport) return;
         boolean glideTick = context.getVehicle() == null
-                && (context.usesFallFlyingMovement() && !context.getWorldData().mustBeInLiquid()
+                && (context.usesFallFlyingMovement() && !context.getWorldData().isInLiquid()
                         || context.getRiptideLevel() > 0
                         || player.riptideSpinAttackTicks > 0);
         List<PredictionResult.Flag> flags = result.getFlags();
