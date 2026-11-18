@@ -22,6 +22,13 @@ public final class TestUsers {
         return new User(profile, session);
     }
 
+    /** A connection whose Bedrock packets Geyser taps on this server (a bridge), as on a backend that runs Geyser. */
+    public static User createWithBedrockBridge(User.Profile profile, Channel channel, Object bridge) {
+        User user = create(profile, channel);
+        user.getCultConnection().bedrockBridge(bridge);
+        return user;
+    }
+
     static void attach(User user, CultPlayer player) {
         synchronized (user.getCultConnection()) {
             user.getCultConnection().player(player);

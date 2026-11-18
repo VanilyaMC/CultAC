@@ -84,7 +84,13 @@ class PlayerDataManagerPlatformExemptionTest {
     }
 
     private User join(UUID uuid) {
-        User user = TestUsers.create(new User.Profile(uuid, "exempt" + users.size()), new EmbeddedChannel());
+        var profile = new User.Profile(uuid, "exempt" + users.size());
+        // Vanilya: a Bedrock session is only inspected where Geyser's bridge taps it (a backend behind a Geyser proxy
+        // exempts it), so the Bedrock join stands for a backend that runs Geyser.
+        boolean bedrock = uuid.getMostSignificantBits() == 0L;
+        User user = bedrock
+                ? TestUsers.createWithBedrockBridge(profile, new EmbeddedChannel(), new Object())
+                : TestUsers.create(profile, new EmbeddedChannel());
         users.add(user);
         manager.addUser(user);
         return user;
