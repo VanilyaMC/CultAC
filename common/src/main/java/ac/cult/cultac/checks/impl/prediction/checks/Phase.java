@@ -162,9 +162,9 @@ public class Phase extends Check implements PostPredictionListener {
                     setbackUtil.executeForceResync("phase");
                 } else if (flagWithSetback()) {
                     final String playerName = player.getName();
-                    LogUtil.info(playerName + "'s box is " + newBox);
-                    LogUtil.info(playerName + "'s box was " + oldBox);
-                    LogUtil.info(playerName + " | Block box is " + box);
+                    LogUtil.debug(playerName + "'s box is " + newBox);
+                    LogUtil.debug(playerName + "'s box was " + oldBox);
+                    LogUtil.debug(playerName + " | Block box is " + box);
                 }
                 return;
             }
